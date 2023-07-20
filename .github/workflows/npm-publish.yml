@@ -1,0 +1,73 @@
+name: NPM Package Publish
+'on':
+  workflow_call:
+    secrets:
+      npm-token:
+        required: true
+    inputs:
+      build-command:
+        type: string
+        required: false
+        default: ${{ vars.NPM_BUILD_COMMAND }}
+      test-command:
+        type: string
+        required: false
+        default: ${{ vars.NPM_TEST_COMMAND }}
+      generate-documentation-command:
+        required: false
+        type: string
+        default:  ${{ vars.GENERATE_DOCUMENTATION_COMMAND }}
+        description: "The command that will be executed to generate documentation"
+      should-generate-documentation:
+        required: false
+        type: boolean
+        default: ${{ vars.SHOULD_GENERATE_DOCUMENTATION == 'true' }}
+        description: "Flag to determine if documentation should be generated"
+        
+jobs:
+  check-is-version-updated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - id: check-is-version-updated
+        uses: FreePhoenix888/is-npm-package-version-changed-github-action@0.0.6
+      - run: 'echo ${{ steps.check-is-version-updated.outputs.is-version-changed }}'
+    outputs:
+      is-version-changed: '${{ steps.check-is-version-updated.outputs.is-version-changed }}'
+      
+  publish:
+    runs-on: ubuntu-latest
+    needs:
+      - check-is-version-updated
+    if: '${{ needs.check-is-version-updated.outputs.is-version-changed == ''true'' }}'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '${{env.NODEJS_VERSION}}'
+      - run: npm i -g npm@latest
+      - run: npm clean-install
+      - run: '${{ inputs.build-command }}'
+      - run: '${{ inputs.test-command }}'
+      - name: Generate Documentation
+        id: generate-docs
+        run: '${{ inputs.generate-documentation-command }}'
+        if: ${{ inputs.should-generate-documentation }}
+      - uses: JS-DevTools/npm-publish@v1
+        id: publish
+        with:
+          token: '${{ secrets.npm-token }}'
+      - name: Create Github Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+        with:
+          tag_name: '${{ steps.publish.outputs.version }}'
+          release_name: 'Release ${{ steps.publish.outputs.version }}'
+          body: '${{ steps.publish.outputs.version }}'
+          draft: false
+          prerelease: false
+    outputs:
+      new-version: '${{ steps.publish.outputs.version }}'
